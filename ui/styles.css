@@ -1,0 +1,45 @@
+/* DARC Dynamic Island: dark capsule, white text, blue/purple accents */
+window.darc { background-color: transparent; }
+
+.island {
+  background-color: rgba(8, 8, 14, 0.96);
+  border: 1px solid rgba(90, 150, 255, 0.35);
+  border-radius: 22px;
+  padding: 8px 16px;
+  color: #ffffff;
+}
+.island.listening  { border-color: rgba(184, 115, 255, 0.85); }
+.island.processing { border-color: rgba(90, 150, 255, 0.85); }
+.island.responding { border-color: rgba(90, 150, 255, 0.6); }
+.island.offline    { border-color: rgba(255, 255, 255, 0.12); }
+
+.dot {
+  min-width: 8px; min-height: 8px;
+  border-radius: 4px;
+  background-color: #5a96ff;
+}
+.island.listening .dot { background-color: #b873ff; }
+.island.offline .dot   { background-color: #55555f; }
+
+.title {
+  font-weight: 800;
+  font-size: 11px;
+  letter-spacing: 3px;
+  color: #ffffff;
+}
+.status { font-size: 11px; color: rgba(255, 255, 255, 0.55); }
+
+.response { font-size: 13px; color: #ffffff; padding: 6px 2px 2px 2px; }
+
+entry.prompt {
+  background-color: rgba(255, 255, 255, 0.06);
+  color: #ffffff;
+  caret-color: #5a96ff;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  border-radius: 16px;
+  padding: 6px 12px;
+  min-width: 300px;
+}
+entry.prompt:focus { border-color: rgba(184, 115, 255, 0.7); }
+
+scrolledwindow, scrolledwindow viewport { background: transparent; }

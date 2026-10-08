@@ -19,6 +19,7 @@ from models.llm import LLMError, OllamaLLM
 class State(str, Enum):
     STARTING = "STARTING"
     IDLE = "IDLE"
+    LISTENING = "LISTENING"
     PROCESSING = "PROCESSING"
     RESPONDING = "RESPONDING"
 
@@ -72,6 +73,17 @@ class Orchestrator:
         req_id = next(self._ids)
         self._queue.put_nowait((req_id, text))
         return req_id
+
+    async def begin_listening(self) -> bool:
+        """Hook for the Phase 3 audio pipeline (fired by the wake word)."""
+        if self.state != State.IDLE:
+            return False
+        await self._set_state(State.LISTENING)
+        return True
+
+    async def cancel_listening(self) -> None:
+        if self.state == State.LISTENING:
+            await self._set_state(State.IDLE)
 
     def clear_history(self) -> None:
         self.history.clear()
