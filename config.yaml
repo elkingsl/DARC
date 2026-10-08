@@ -1,0 +1,26 @@
+# DARC configuration (Phase 1: only the llm + daemon sections are used)
+llm:
+  host: http://127.0.0.1:11434
+  model: qwen2.5-coder:1.5b
+  keep_alive: 5m          # unload the model from RAM after 5 min idle
+  timeout: 120            # seconds to wait between streamed chunks
+  options:
+    num_ctx: 2048         # small context = less RAM, faster on a dual-core
+    num_thread: 2         # matches your physical cores
+    temperature: 0.4
+
+daemon:
+  max_history_turns: 6    # user+assistant pairs kept as context
+  system_prompt: >
+    You are DARC, a concise local assistant running on Arch Linux.
+    Keep answers short and practical. When asked for shell commands,
+    give the command first, then a one-line explanation.
+
+# Used in later phases
+wake_word: hey_jarvis
+model_paths:
+  vision: moondream
+  stt: ~/darc-deps/whisper.cpp/models/ggml-tiny.en.bin
+  tts: ~/darc-deps/voices/en_US-lessac-medium.onnx
+ui:
+  position: top-right

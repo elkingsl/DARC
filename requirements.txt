@@ -1,0 +1,6 @@
+requests
+pyyaml
+numpy
+sounddevice
+pillow
+openwakeword
