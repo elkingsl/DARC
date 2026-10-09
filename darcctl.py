@@ -3,9 +3,10 @@
 
   darcctl.py toggle        open/close the island's input box (bind to a hotkey)
   darcctl.py say "text"    send a prompt and stream the reply in the terminal
-  darcctl.py listen        put the UI in LISTENING (waveform) for testing
-  darcctl.py cancel        leave LISTENING
+  darcctl.py listen        start a voice capture now (same as saying the wake word)
+  darcctl.py cancel        stop listening / cut speech short
   darcctl.py clear         reset conversation context
+  darcctl.py yes | no      answer a pending "run this command?" prompt
   darcctl.py state         print the daemon state
 """
 import json
@@ -63,6 +64,13 @@ def main() -> None:
     elif cmd in ("listen", "cancel", "clear"):
         s = connect()
         send(s, {"type": cmd})
+    elif cmd in ("yes", "no"):
+        s = connect()
+        pending = next(events(s)).get("pending")
+        if not pending:
+            sys.exit("nothing is waiting for confirmation")
+        send(s, {"type": "confirm", "id": pending["id"], "approved": cmd == "yes"})
+        print(("approved: " if cmd == "yes" else "cancelled: ") + pending["command"])
     elif cmd == "state":
         s = connect()
         print(next(events(s))["state"])
@@ -75,6 +83,16 @@ def main() -> None:
             elif ev["type"] == "done":
                 print()
                 break
+            elif ev["type"] == "status":
+                print(f"\033[2m[{ev['text']}]\033[0m", file=sys.stderr, flush=True)
+            elif ev["type"] == "confirm":
+                print(f"\n$ {ev['command']}\n  {ev.get('explanation', '')}")
+                if ev.get("warning"):
+                    print(f"  WARNING: {ev['warning']}")
+                if ev.get("terminal"):
+                    print("  (opens a terminal; you type your password there)")
+                answer = input("Run it? [y/N] ").strip().lower() in ("y", "yes")
+                send(s, {"type": "confirm", "id": ev["id"], "approved": answer})
             elif ev["type"] == "error":
                 sys.exit(f"\n[error] {ev['message']}")
     else:

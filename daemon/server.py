@@ -4,6 +4,7 @@ Client -> daemon:
   {"type":"submit","text":"..."}   queue a request
   {"type":"clear"}                 reset context
   {"type":"listen"} / {"type":"cancel"}   enter/leave LISTENING (audio hook)
+  {"type":"confirm","id":N,"approved":true|false}   answer a command prompt
   {"type":"ping"}                  -> {"type":"pong"}
 Daemon -> client:
   {"type":"hello","state":"IDLE"}  sent on connect, then every orchestrator
@@ -27,6 +28,8 @@ class SocketServer:
         self.path = path or default_socket_path()
         self._server: asyncio.AbstractServer | None = None
         self._clients: set[asyncio.StreamWriter] = set()
+        self.voice = None  # set by main.py when the voice pipeline is up
+        self._tasks: set[asyncio.Task] = set()
 
     async def start(self) -> None:
         await self._claim_path()
@@ -68,7 +71,8 @@ class SocketServer:
     async def _on_client(self, reader, writer) -> None:
         self._clients.add(writer)
         writer.write(self._encode({"type": "hello",
-                                   "state": self.orch.state.value}))
+                                   "state": self.orch.state.value,
+                                   "pending": self.orch.pending_event}))
         try:
             while True:
                 try:
@@ -95,9 +99,19 @@ class SocketServer:
         elif kind == "clear":
             self.orch.clear_history()
         elif kind == "listen":
-            await self.orch.begin_listening()
+            if self.voice and self.voice.can_listen:
+                task = asyncio.create_task(self.voice.start_session())
+                self._tasks.add(task)
+                task.add_done_callback(self._tasks.discard)
+            else:  # no audio: just show the LISTENING state (UI testing)
+                await self.orch.begin_listening()
         elif kind == "cancel":
-            await self.orch.cancel_listening()
+            if self.voice:
+                await self.voice.cancel()
+            else:
+                await self.orch.cancel_listening()
+        elif kind == "confirm":
+            self.orch.resolve_confirmation(msg.get("id"), msg.get("approved") is True)
         elif kind == "ping":
             writer.write(self._encode({"type": "pong"}))
 

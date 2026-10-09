@@ -1,4 +1,4 @@
-# DARC configuration (Phase 1: only the llm + daemon sections are used)
+# DARC configuration
 llm:
   host: http://127.0.0.1:11434
   model: qwen2.5-coder:1.5b
@@ -8,6 +8,8 @@ llm:
     num_ctx: 2048         # small context = less RAM, faster on a dual-core
     num_thread: 2         # matches your physical cores
     temperature: 0.4
+  think: false            # false = turn off "thinking" on Qwen3-style models (much faster);
+                          # null = leave the model's default
 
 daemon:
   max_history_turns: 6    # user+assistant pairs kept as context
@@ -16,11 +18,67 @@ daemon:
     Keep answers short and practical. When asked for shell commands,
     give the command first, then a one-line explanation.
 
-# Used in later phases
-wake_word: hey_jarvis
-model_paths:
-  vision: moondream
-  stt: ~/darc-deps/whisper.cpp/models/ggml-tiny.en.bin
-  tts: ~/darc-deps/voices/en_US-lessac-medium.onnx
+audio:
+  enabled: true           # false = text only
+  wake_word: hey_jarvis   # openwakeword built-ins: alexa, hey_mycroft, hey_jarvis, timer, weather
+                          # set to null for hotkey-only (darcctl.py listen)
+  wake_threshold: 0.5     # raise (0.6-0.7) if it triggers by accident
+  sample_rate: 16000
+  input_device: null      # null = system default mic; or a name/index from `python -m sounddevice`
+  vad_threshold: 500      # mic loudness that counts as speech (raise in noisy rooms)
+  silence_ms: 900         # trailing silence that ends your sentence
+  max_record_s: 12
+  start_timeout_s: 5      # give up if you say nothing after the wake word
+
+stt:
+  binary: ~/darc-deps/whisper.cpp/build/bin/whisper-cli
+  model: ~/darc-deps/whisper.cpp/models/ggml-tiny.en.bin
+  threads: 2
+  language: en
+
+tts:
+  enabled: true
+  speak: voice_only       # voice_only | always | never
+  piper_bin: ~/darc-deps/piper-env/bin/piper
+  voice: ~/darc-deps/voices/en_US-lessac-medium.onnx
+  max_chars: 400          # long answers are trimmed to whole sentences
+
+vision:
+  enabled: true
+  model: moondream        # ollama pull moondream
+  keep_alive: 1m          # free its RAM soon after use
+  max_side: 1024          # screenshots are downscaled to this before sending
+  refine: true            # let Qwen tidy the vision answer (slower, better)
+
+commands:
+  enabled: true           # every command still needs your confirmation
+  terminal: null          # for sudo commands; null = auto (kitty, foot, alacritty...)
+  timeout_s: 30           # kill commands that run longer than this
+  max_output_chars: 3000
+  interpret: true         # Qwen summarises the command output
+  confirm_timeout_s: 60   # no answer = cancelled
+
+apps:
+  enabled: true
+  launcher: hyprctl       # hyprctl | gtk-launch (auto-falls back)
+
+web:
+  enabled: true
+  timeout_s: 15
+  max_chars: 6000         # page text kept per page
+  open_with: null         # null = xdg-open; or e.g. google-chrome-stable
+  sites: {}               # extra shortcuts, e.g.  school: https://example.edu
+  search_sites: {}        # extra, e.g.  npm: "https://www.npmjs.com/search?q={q}"
+
+browser:
+  enabled: true
+  command: null           # null = auto: native Chrome, then Flatpak com.google.Chrome
+                          # or set it, e.g. ["flatpak", "run", "com.google.Chrome"]
+  profile_dir: null       # null = DARC's own profile (Flatpak: inside ~/.var/app/com.google.Chrome)
+  headless: false
+  extra_args: []          # extra Chrome flags, e.g. ["--ozone-platform=wayland"]
+  max_steps: 8            # per task; the model gives up after this
+  idle_close_s: 300       # close DARC's Chrome after 5 idle minutes (saves RAM)
+
 ui:
   position: top-right

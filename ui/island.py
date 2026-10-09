@@ -72,6 +72,8 @@ STATES = {
     "IDLE":       ("", "none"),
     "LISTENING":  ("listening", "listen"),
     "PROCESSING": ("thinking", "think"),
+    "CONFIRMING": ("confirm?", "none"),
+    "EXECUTING":  ("running", "think"),
     "RESPONDING": ("responding", "speak"),
 }
 
@@ -200,6 +202,7 @@ class Island(Gtk.Window):
         self._build()
         self.set_state("OFFLINE")
 
+        self.connect("key-press-event", self._on_window_key)
         self.client = Client(sock_path, self.on_event, self.on_status)
         self.client.start()
         self.connect("destroy", lambda *_: Gtk.main_quit())
@@ -232,6 +235,18 @@ class Island(Gtk.Window):
         if hasattr(GtkLayerShell, "set_keyboard_mode"):
             mode = GtkLayerShell.KeyboardMode
             GtkLayerShell.set_keyboard_mode(self, mode.EXCLUSIVE if on else mode.NONE)
+        else:
+            GtkLayerShell.set_keyboard_interactivity(self, on)
+
+    def _keyboard_demand(self, on: bool):
+        """Confirmation panel: take keys only when the user clicks it, so a
+        pop-up never swallows what they are typing elsewhere."""
+        if not self.layered:
+            return
+        if hasattr(GtkLayerShell, "set_keyboard_mode"):
+            mode = GtkLayerShell.KeyboardMode
+            GtkLayerShell.set_keyboard_mode(
+                self, mode.ON_DEMAND if on else mode.NONE)
         else:
             GtkLayerShell.set_keyboard_interactivity(self, on)
 
@@ -284,7 +299,39 @@ class Island(Gtk.Window):
         self.entry.connect("key-press-event", self._on_key)
         self.entry_rev = self._revealer(self.entry)
 
+        self.cmd_label = Gtk.Label(xalign=0)
+        self.cmd_label.set_line_wrap(True)
+        self.cmd_label.set_line_wrap_mode(Pango.WrapMode.WORD_CHAR)
+        self.cmd_label.set_width_chars(40)
+        self.cmd_label.set_max_width_chars(48)
+        self.cmd_label.set_selectable(False)
+        self.cmd_label.get_style_context().add_class("cmd")
+        self.why_label = Gtk.Label(xalign=0)
+        self.why_label.set_line_wrap(True)
+        self.why_label.set_max_width_chars(48)
+        self.why_label.get_style_context().add_class("why")
+        self.warn_label = Gtk.Label(xalign=0)
+        self.warn_label.set_line_wrap(True)
+        self.warn_label.set_max_width_chars(48)
+        self.warn_label.get_style_context().add_class("warn")
+        self.warn_label.set_no_show_all(True)
+        yes = Gtk.Button(label="Run it  (Y)")
+        yes.get_style_context().add_class("btn-yes")
+        yes.connect("clicked", lambda *_: self._answer(True))
+        no = Gtk.Button(label="Cancel  (N)")
+        no.get_style_context().add_class("btn-no")
+        no.connect("clicked", lambda *_: self._answer(False))
+        buttons = Gtk.Box(spacing=8)
+        buttons.pack_start(yes, True, True, 0)
+        buttons.pack_start(no, True, True, 0)
+        box = Gtk.Box(orientation=Gtk.Orientation.VERTICAL, spacing=6)
+        for w in (self.cmd_label, self.why_label, self.warn_label, buttons):
+            box.pack_start(w, False, False, 0)
+        self.confirm_rev = self._revealer(box)
+        self._confirm_id = None
+
         self.island.pack_start(self.resp_rev, False, False, 0)
+        self.island.pack_start(self.confirm_rev, False, False, 4)
         self.island.pack_start(self.entry_rev, False, False, 4)
 
     @staticmethod
@@ -326,6 +373,11 @@ class Island(Gtk.Window):
         self.status.set_visible(bool(text))
         self.activity.set_visible(mode != "none")
         self.activity.set_mode(mode)
+        if state != "CONFIRMING" and self._confirm_id is not None:
+            self._confirm_id = None
+            self._reveal(self.confirm_rev, False)
+            if not self.input_open:
+                self._keyboard_demand(False)
         if state == "PROCESSING":  # new request: drop the old answer
             self._cancel_collapse()
             self.resp.set_text("")
@@ -340,6 +392,14 @@ class Island(Gtk.Window):
         kind = ev.get("type")
         if kind in ("hello", "state"):
             self.set_state(ev.get("state", "IDLE"))
+            if kind == "hello" and ev.get("pending"):
+                self._show_confirm(ev["pending"])
+        elif kind == "status":
+            if self.state in ("PROCESSING", "EXECUTING"):
+                self.status.set_text(ev.get("text", ""))
+                self.status.set_visible(True)
+        elif kind == "confirm":
+            self._show_confirm(ev)
         elif kind == "token":
             self._cancel_collapse()
             self.resp.set_text(self.resp.get_text() + ev.get("text", ""))
@@ -360,6 +420,49 @@ class Island(Gtk.Window):
         lines = sum(max(1, math.ceil(len(l) / 36))
                     for l in self.resp.get_text().split("\n"))
         self.scroll.set_min_content_height(min(lines * 19 + 10, 220))
+
+    def _show_confirm(self, ev: dict):
+        self._cancel_collapse()
+        self._confirm_id = ev.get("id")
+        prefix = "\u2192 " if ev.get("kind") == "browser" else "$ "
+        self.cmd_label.set_text(prefix + ev.get("command", ""))
+        why = ev.get("explanation") or ""
+        if ev.get("kind") == "browser":
+            why = ("In DARC's Chrome window. " + why).strip()
+        if ev.get("terminal"):
+            why += ("\n" if why else "") + "Opens a terminal: type your password there."
+        self.why_label.set_text(why)
+        self.why_label.set_visible(bool(why))
+        warn = ev.get("warning")
+        self.warn_label.set_text("\u26a0 " + warn if warn else "")
+        self.warn_label.set_visible(bool(warn))
+        self.input_open = False
+        self._reveal(self.entry_rev, False)
+        self._reveal(self.resp_rev, False)
+        self._reveal(self.confirm_rev, True)
+        self.confirm_rev.get_child().show_all()
+        self.warn_label.set_visible(bool(warn))
+        self._keyboard_demand(True)
+
+    def _answer(self, approved: bool):
+        cid, self._confirm_id = self._confirm_id, None
+        if cid is None:
+            return
+        self.client.send({"type": "confirm", "id": cid, "approved": approved})
+        self._reveal(self.confirm_rev, False)
+        self._keyboard_demand(False)
+
+    def _on_window_key(self, _w, event):
+        if self._confirm_id is None:
+            return False
+        key = Gdk.keyval_name(event.keyval) or ""
+        if key.lower() == "y":
+            self._answer(True)
+            return True
+        if key.lower() == "n" or key == "Escape":
+            self._answer(False)
+            return True
+        return False
 
     def _scroll_bottom(self):
         adj = self.scroll.get_vadjustment()
